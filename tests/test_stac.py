@@ -1,4 +1,4 @@
-from stactools.ephemeral import stac
+from stactools.noaa_gefs import stac
 
 
 def test_create_collection() -> None:

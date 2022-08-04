@@ -1,4 +1,4 @@
-name: stactools-ephemeral
+name: stactools-noaa-gefs
 channels:
   - conda-forge
   - defaults
