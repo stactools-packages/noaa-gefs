@@ -20,7 +20,7 @@ class CommandsTest(CliTestCase):
             # Example:
             destination = os.path.join(tmp_dir, "collection.json")
 
-            result = self.run_command(f"noaagefs create-collection {destination}")
+            result = self.run_command(f"noaa-gefs create-collection {destination}")
 
             assert result.exit_code == 0, "\n{}".format(result.output)
 
@@ -28,7 +28,7 @@ class CommandsTest(CliTestCase):
             assert len(jsons) == 1
 
             collection = pystac.read_file(destination)
-            assert collection.id == "my-collection-id"
+            assert collection.id == "noaa-gefs"
             # assert collection.other_attr...
 
             collection.validate()
@@ -40,7 +40,7 @@ class CommandsTest(CliTestCase):
             # Example:
             infile = "/path/to/asset.tif"
             destination = os.path.join(tmp_dir, "item.json")
-            result = self.run_command(f"noaagefs create-item {infile} {destination}")
+            result = self.run_command(f"noaa-gefs create-item {infile} {destination}")
             assert result.exit_code == 0, "\n{}".format(result.output)
 
             jsons = [p for p in os.listdir(tmp_dir) if p.endswith(".json")]

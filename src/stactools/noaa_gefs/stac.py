@@ -1,65 +1,106 @@
 import logging
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
-from pystac import (
+from dateutil.parser import isoparse
+from pystac import (  # Summaries,
     Asset,
     CatalogType,
     Collection,
     Extent,
     Item,
     MediaType,
-    Provider,
-    ProviderRole,
     SpatialExtent,
     TemporalExtent,
 )
+from pystac.extensions.item_assets import AssetDefinition, ItemAssetsExtension
 from pystac.extensions.projection import ProjectionExtension
+
+from . import constants
 
 logger = logging.getLogger(__name__)
 
 
-def create_collection() -> Collection:
-    """Create a STAC Collection
+def create_collection(
+    thumbnail: str = "",
+    start_time: Optional[str] = None,
+) -> Collection:
+    """Create a STAC Collection for NOAA MRMS QPE sub-products.
 
-    This function includes logic to extract all relevant metadata from
-    an asset describing the STAC collection and/or metadata coded into an
-    accompanying constants.py file.
-
-    See `Collection<https://pystac.readthedocs.io/en/latest/api.html#collection>`_.
+    Args:
+        thumbnail (str): URL for the PNG or JPEG collection thumbnail asset (none if empty)
+        start_time (str): The start timestamp for the temporal extent, default to now.
+            Timestamps consist of a date and time in UTC and must follow RFC 3339, section 5.6.
 
     Returns:
         Collection: STAC Collection object
     """
-    providers = [
-        Provider(
-            name="The OS Community",
-            roles=[ProviderRole.PRODUCER, ProviderRole.PROCESSOR, ProviderRole.HOST],
-            url="https://github.com/stac-utils/stactools",
-        )
-    ]
-
     # Time must be in UTC
-    demo_time = datetime.now(tz=timezone.utc)
+    if start_time is None:
+        start_datetime = datetime.now(tz=timezone.utc)
+    else:
+        start_datetime = isoparse(start_time)
 
     extent = Extent(
         SpatialExtent([[-180.0, 90.0, 180.0, -90.0]]),
-        TemporalExtent([[demo_time, None]]),
+        TemporalExtent([[start_datetime, None]]),
     )
 
+    # summaries = Summaries({})
+    # summaries.add("example", [])
+
     collection = Collection(
-        id="my-collection-id",
-        title="A dummy STAC Collection",
-        description="Used for demonstration purposes",
-        license="CC-0",
-        providers=providers,
+        stac_extensions=[],
+        id=constants.DEFAULT_COLLECTION_ID,
+        title=constants.TITLE,
+        description=constants.DESCRIPTION,
+        keywords=constants.KEYWORDS,
+        license="proprietary",
+        providers=constants.PROVIDERS,
         extent=extent,
+        #       summaries=summaries,
         catalog_type=CatalogType.RELATIVE_PUBLISHED,
     )
+
+    collection.add_link(constants.LINK_LICENSE)
+    collection.add_link(constants.LINK_HOME)
+
+    if len(thumbnail) > 0:
+        if thumbnail.endswith(".png"):
+            media_type = MediaType.PNG
+        else:
+            media_type = MediaType.JPEG
+
+        collection.add_asset(
+            "thumbnail",
+            Asset(
+                href=thumbnail,
+                title="Preview",
+                roles=["thumbnail"],
+                media_type=media_type,
+            ),
+        )
+
+    item_assets = {}
+
+    # it seems the raster extension can't be added to an AssetDefintion
+    # via RasterExtension.ext(data_asset, add_if_missing=True).
+    # So RasterBand.create() etc. are not usable here
+    collection.stac_extensions.append(constants.RASTER_EXTENSION_V11)
+
+    asset = create_asset()
+    item_assets[constants.GRIB2_KEY] = AssetDefinition(asset)
+
+    item_assets_attrs = ItemAssetsExtension.ext(collection, add_if_missing=True)
+    item_assets_attrs.item_assets = item_assets
 
     return collection
 
 
-def create_item(asset_href: str) -> Item:
+def create_item(
+    asset_href: str,
+    collection: Optional[Collection] = None,
+) -> Item:
     """Create a STAC Item
 
     This function should include logic to extract all relevant metadata from an
@@ -69,6 +110,7 @@ def create_item(asset_href: str) -> Item:
 
     Args:
         asset_href (str): The HREF pointing to an asset associated with the item
+        collection (pystac.Collection): HREF to an existing collection
 
     Returns:
         Item: STAC Item object
@@ -88,12 +130,13 @@ def create_item(asset_href: str) -> Item:
     demo_time = datetime.now(tz=timezone.utc)
 
     item = Item(
+        stac_extensions=[],
         id="my-item-id",
         properties=properties,
         geometry=demo_geom,
         bbox=[-180, 90, 180, -90],
         datetime=demo_time,
-        stac_extensions=[],
+        collection=collection,
     )
 
     # It is a good idea to include proj attributes to optimize for libs like stac-vrt
@@ -115,3 +158,14 @@ def create_item(asset_href: str) -> Item:
     )
 
     return item
+
+
+def create_asset(href: Optional[str] = None) -> Dict[str, Any]:
+    asset: Dict[str, Any] = {
+        "roles": constants.GRIB2_ROLES,
+        "type": constants.GRIB2_MEDIATYPE,
+        "title": constants.GRIB2_TITLE,
+    }
+    if href is not None:
+        asset["href"] = href
+    return asset

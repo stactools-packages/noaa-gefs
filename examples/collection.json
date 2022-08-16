@@ -1,0 +1,88 @@
+{
+  "type": "Collection",
+  "id": "noaa-gefs",
+  "stac_version": "1.0.0",
+  "description": "The Global Ensemble Forecast System (GEFS) is a weather model created by the National Centers for Environmental Prediction (NCEP) that generates 21 separate forecasts (ensemble members) to address underlying uncertainties in the input data such limited coverage, instruments or observing systems biases, and the limitations of the model itself. GEFS quantifies these uncertainties by generating multiple forecasts, which in turn produce a range of potential outcomes based on differences or perturbations applied to the data after it has been incorporated into the model. Each forecast compensates for a different set of uncertainties.\n\nGEFS runs 4 times per day (00; 06; 12; 18UTC) with 31 members at each lead-time at C384L64 (about 25 km horizontal resolution and 64 vertical hybrid levels for atmosphere component) and out to 16 days at each cycle, except for 35 days at 0000 UTC.",
+  "links": [
+    {
+      "rel": "root",
+      "href": "./collection.json",
+      "type": "application/json",
+      "title": "NOAA Global Ensemble Forecast System (GEFS)"
+    },
+    {
+      "rel": "license",
+      "href": "https://www.weather.gov/disclaimer",
+      "type": "text/html",
+      "title": "Public Domain"
+    },
+    {
+      "rel": "about",
+      "href": "https://www.ncei.noaa.gov/products/weather-climate-models/global-ensemble-forecast",
+      "type": "text/html",
+      "title": "GEFS Homepage"
+    },
+    {
+      "rel": "self",
+      "href": "/mnt/c/Projects/noaa-gefs/examples/collection.json",
+      "type": "application/json"
+    }
+  ],
+  "stac_extensions": [
+    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
+    "https://stac-extensions.github.io/item-assets/v1.0.0/schema.json"
+  ],
+  "item_assets": {
+    "grib2": {
+      "roles": [
+        "data",
+        "source"
+      ],
+      "type": "application/wmo-GRIB2",
+      "title": "GRIB2 file"
+    }
+  },
+  "title": "NOAA Global Ensemble Forecast System (GEFS)",
+  "extent": {
+    "spatial": {
+      "bbox": [
+        [
+          -180.0,
+          90.0,
+          180.0,
+          -90.0
+        ]
+      ]
+    },
+    "temporal": {
+      "interval": [
+        [
+          "2022-08-16T14:34:09.023824Z",
+          null
+        ]
+      ]
+    }
+  },
+  "license": "proprietary",
+  "keywords": [
+    "NOAA",
+    "GEFS",
+    "global",
+    "ensemble",
+    "forecast",
+    "GRIB2"
+  ],
+  "providers": [
+    {
+      "name": "NOAA National Centers for Environmental Information",
+      "roles": [
+        "producer",
+        "licensor"
+      ],
+      "url": "https://www.ncei.noaa.gov"
+    }
+  ],
+  "summaries": {
+    "example": []
+  }
+}

@@ -6,33 +6,60 @@
 - Package: `stactools.noaa_gefs`
 - PyPI: https://pypi.org/project/stactools-noaa-gefs/
 - Owner: @m-mohr
-- Dataset homepage: https://www.ncei.noaa.gov/products/weather-climate-models/global-ensemble-forecast
+- Dataset homepage: <https://www.ncei.noaa.gov/products/weather-climate-models/global-ensemble-forecast>
 - STAC extensions used:
+  - [raster](https://github.com/stac-extensions/raster/)
   - [proj](https://github.com/stac-extensions/projection/)
 - Extra fields:
   - `noaa-gefs:custom`: A custom attribute
 
-A short description of the package and its usage.
+A stactools package for NOAA's Global Ensemble Forecast System (GEFS) dataset.
+
+This package can generate STAC files from GRIB2 files that link to the original GRIB2 files (+ .idx sidecar files).
 
 ## STAC Examples
 
 - [Collection](examples/collection.json)
-- [Item](examples/item/item.json)
+- [Item](examples/item.json)
+- [Browse the example in a human-readable form](https://radiantearth.github.io/stac-browser/#/external/raw.githubusercontent.com/stactools-packages/noaa-gefs/main/examples/collection.json)
 
 ## Installation
+
 ```shell
 pip install stactools-noaa-gefs
 ```
 
 ## Command-line Usage
 
-Description of the command line functions
+Use `stac noaa-gefs --help` to list all commands and options.
+
+### Collection
+
+Create a collection:
 
 ```shell
-$ stac noaa-gefs create-item source destination
+stac noaa-gefs create-collection collection.json
 ```
 
-Use `stac noaa-gefs --help` to see all subcommands and options.
+Get information about all options for collection creation:
+
+```shell
+stac noaa-gefs create-collection --help
+```
+
+### Item
+
+Create an item:
+
+```shell
+stac noaa-gefs create-item /path/to/gefs.chem.t00z.a2d_0p25.f000.grib2 item.json --collection collection.json
+```
+
+Get information about all options for item creation:
+
+```shell
+stac noaa-gefs create-item --help
+```
 
 ## Contributing
 
