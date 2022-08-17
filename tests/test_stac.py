@@ -9,7 +9,6 @@ def test_create_collection() -> None:
 
     # Check that it has some required attributes
     assert collection.id == "noaa-gefs"
-    # self.assertEqual(collection.other_attr...
 
     # Validate
     collection.validate()
@@ -18,11 +17,10 @@ def test_create_collection() -> None:
 def test_create_item() -> None:
     # Write tests for each for the creation of STAC Items
     # Create the STAC Item...
-    item = stac.create_item("/path/to/asset.tif")
+    item = stac.create_item("tests/data-files/ncep/atmos/geavg.t00z.pgrb2a.0p50.f000")
 
     # Check that it has some required attributes
-    assert item.id == "my-item-id"
-    # self.assertEqual(item.other_attr...
+    # assert item.id == "my-item-id"
 
     # Validate
     item.validate()

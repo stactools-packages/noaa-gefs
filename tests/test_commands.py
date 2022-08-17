@@ -15,9 +15,6 @@ class CommandsTest(CliTestCase):
 
     def test_create_collection(self) -> None:
         with TemporaryDirectory() as tmp_dir:
-            # Run your custom create-collection command and validate
-
-            # Example:
             destination = os.path.join(tmp_dir, "collection.json")
 
             result = self.run_command(f"noaa-gefs create-collection {destination}")
@@ -29,16 +26,12 @@ class CommandsTest(CliTestCase):
 
             collection = pystac.read_file(destination)
             assert collection.id == "noaa-gefs"
-            # assert collection.other_attr...
 
             collection.validate()
 
     def test_create_item(self) -> None:
         with TemporaryDirectory() as tmp_dir:
-            # Run your custom create-item command and validate
-
-            # Example:
-            infile = "/path/to/asset.tif"
+            infile = "tests/data-files/ncep/atmos/geavg.t00z.pgrb2a.0p50.f000"
             destination = os.path.join(tmp_dir, "item.json")
             result = self.run_command(f"noaa-gefs create-item {infile} {destination}")
             assert result.exit_code == 0, "\n{}".format(result.output)
@@ -47,7 +40,6 @@ class CommandsTest(CliTestCase):
             assert len(jsons) == 1
 
             item = pystac.read_file(destination)
-            assert item.id == "my-item-id"
-            # assert item.other_attr...
+            # assert item.id == "my-item-id"
 
             item.validate()

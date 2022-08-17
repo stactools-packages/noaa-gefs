@@ -1,9 +1,12 @@
 import logging
+import os
+import re
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
+import rasterio
 from dateutil.parser import isoparse
-from pystac import (  # Summaries,
+from pystac import (
     Asset,
     CatalogType,
     Collection,
@@ -11,10 +14,14 @@ from pystac import (  # Summaries,
     Item,
     MediaType,
     SpatialExtent,
+    Summaries,
     TemporalExtent,
 )
 from pystac.extensions.item_assets import AssetDefinition, ItemAssetsExtension
 from pystac.extensions.projection import ProjectionExtension
+
+# from pystac.extensions.raster import DataType
+from rasterio.crs import CRS
 
 from . import constants
 
@@ -46,8 +53,8 @@ def create_collection(
         TemporalExtent([[start_datetime, None]]),
     )
 
-    # summaries = Summaries({})
-    # summaries.add("example", [])
+    summaries = Summaries({})
+    summaries.add("example", ["abc"])
 
     collection = Collection(
         stac_extensions=[],
@@ -58,7 +65,7 @@ def create_collection(
         license="proprietary",
         providers=constants.PROVIDERS,
         extent=extent,
-        #       summaries=summaries,
+        summaries=summaries,
         catalog_type=CatalogType.RELATIVE_PUBLISHED,
     )
 
@@ -83,13 +90,11 @@ def create_collection(
 
     item_assets = {}
 
-    # it seems the raster extension can't be added to an AssetDefintion
-    # via RasterExtension.ext(data_asset, add_if_missing=True).
-    # So RasterBand.create() etc. are not usable here
-    collection.stac_extensions.append(constants.RASTER_EXTENSION_V11)
-
-    asset = create_asset()
+    asset = create_grib2_asset()
     item_assets[constants.GRIB2_KEY] = AssetDefinition(asset)
+
+    idx_asset = create_idx_asset()
+    item_assets[constants.IDX_KEY] = AssetDefinition(idx_asset)
 
     item_assets_attrs = ItemAssetsExtension.ext(collection, add_if_missing=True)
     item_assets_attrs.item_assets = item_assets
@@ -115,52 +120,116 @@ def create_item(
     Returns:
         Item: STAC Item object
     """
+    item = None
 
-    properties = {
-        "title": "A dummy STAC Item",
-        "description": "Used for demonstration purposes",
-    }
+    with rasterio.open(asset_href) as dataset:
 
-    demo_geom = {
-        "type": "Polygon",
-        "coordinates": [[[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]],
-    }
+        [w, s, e, n] = dataset.bounds
+        bbox = [w, n, e, s]
+        geometry = bbox_to_polygon(bbox)
 
-    # Time must be in UTC
-    demo_time = datetime.now(tz=timezone.utc)
+        time = datetime.now(tz=timezone.utc)
 
-    item = Item(
-        stac_extensions=[],
-        id="my-item-id",
-        properties=properties,
-        geometry=demo_geom,
-        bbox=[-180, 90, 180, -90],
-        datetime=demo_time,
-        collection=collection,
-    )
+        properties: Dict[str, Any] = {}
+        id = str(time) + "_" + dataset.name
 
-    # It is a good idea to include proj attributes to optimize for libs like stac-vrt
-    proj_attrs = ProjectionExtension.ext(item, add_if_missing=True)
-    proj_attrs.epsg = 4326
-    proj_attrs.bbox = [-180, 90, 180, -90]
-    proj_attrs.shape = [1, 1]  # Raster shape
-    proj_attrs.transform = [-180, 360, 0, 90, 0, 180]  # Raster GeoTransform
+        item = Item(
+            # Raster extension v1.1 not supported by PySTAC
+            stac_extensions=[constants.RASTER_EXTENSION_V11],
+            id=id,
+            properties=properties,
+            geometry=geometry,
+            bbox=bbox,
+            datetime=time,
+            collection=collection,
+        )
 
-    # Add an asset to the item (COG for example)
-    item.add_asset(
-        "image",
-        Asset(
-            href=asset_href,
-            media_type=MediaType.COG,
-            roles=["data"],
-            title="A dummy STAC Item COG",
-        ),
-    )
+        # Projection extension for assets
+        proj_attrs = ProjectionExtension.ext(item, add_if_missing=True)
+        if isinstance(dataset.crs, CRS):
+            proj_attrs.epsg = None
+            proj_attrs.projjson = dataset.crs.to_dict(projjson=True)
+        if len(dataset.shape) == 2:
+            proj_attrs.shape = [dataset.shape[1], dataset.shape[0]]
+        if dataset.transform:
+            proj_attrs.transform = list(dataset.transform)[0:6]
+
+        # Add GRIB2 assets to the item
+        asset = create_grib2_asset(asset_href)
+
+        asset["raster:bands"] = []
+        for i in range(1, dataset.count):
+            stats = dataset.statistics(i)
+            band = {
+                "data_type": dataset.dtypes[i],  # todo: check whether that is valid
+                "statistics": {
+                    "minimum": stats.min,
+                    "maximum": stats.max,
+                    "mean": stats.mean,
+                    "stddev": stats.std,
+                },
+            }
+
+            meta = dataset.tags(i)
+            # "GRIB_DISCIPLINE": "0(Meteorological)",
+            # "GRIB_ELEMENT": "SCTAOTK",
+            # "GRIB_FORECAST_SECONDS": "0",
+            # "GRIB_IDS": "CENTER=7(US-NCEP) SUBCENTER=0 MASTER_TABLE=2 LOCAL_TABLE=1
+            #   SIGNF_REF_TIME=1(Start_of_Forecast) REF_TIME=2022-08-12T00:00:00Z
+            #   PROD_STATUS=0(Operational) TYPE=1(Forecast)",
+            # "GRIB_PDS_PDTN": "48",
+            # "GRIB_PDS_TEMPLATE_ASSEMBLED_VALUES":
+            #   "20 112 62006 0 8 70 0 0 7 9 545 9 565 2 0 96 0 0 1 0 10 0 0 255 0 0",
+            # "GRIB_PDS_TEMPLATE_NUMBERS":
+            #   "20 112 242 54 0 8 0 0 0 70 0 0 0 0 0 7 9 0 0 2 33 9 0 0 2 53 2 0 96
+            #   0 0 0 1 0 0 0 0 10 0 0 0 0 0 255 0 0 0 0 0",
+            # "GRIB_REF_TIME": "1660262400",
+            # "GRIB_SHORT_NAME": "0-EATM",
+            # "GRIB_VALID_TIME": "1660262400",
+
+            if "GRIB_COMMENT" in meta:
+                # Remove the unit from the comment
+                band["description"] = re.sub(
+                    r"\s*\[[^\]]+\]$", "", meta["GRIB_COMMENT"]
+                )
+            elif dataset.descriptions[i] is not None:
+                band["description"] = dataset.descriptions[i]
+
+            if "GRIB_UNIT" in meta:
+                # Remove the square brackets from the unit
+                unit = meta["GRIB_UNIT"].strip("[]")
+                # Numeric is not a valid value
+                if unit != "Numeric":
+                    band["unit"] = unit
+            elif dataset.units[i] is not None:
+                band["unit"] = dataset.units[i]
+
+            offset = dataset.offsets[i]
+            scale = dataset.scales[i]
+            if scale != 1 or offset != 0:
+                band["scale"] = scale
+                band["offset"] = offset
+
+            asset["raster:bands"].append(band)
+
+        item.add_asset(constants.GRIB2_KEY, Asset.from_dict(asset))
+
+        # Add Index assets to the item (if available)
+        [path, ext] = os.path.splitext(asset_href)
+        if ext == "grib2" or ext == "grb2":
+            idx_href = path + ".idx"
+        else:
+            # Some source files don't have the .grib2 extension!
+            idx_href = asset_href + ".idx"
+
+        if os.path.exists(idx_href):
+            idx_asset = create_idx_asset(idx_href)
+            item.add_asset(constants.IDX_KEY, Asset.from_dict(idx_asset))
 
     return item
 
 
-def create_asset(href: Optional[str] = None) -> Dict[str, Any]:
+def create_grib2_asset(href: Optional[str] = None) -> Dict[str, Any]:
     asset: Dict[str, Any] = {
         "roles": constants.GRIB2_ROLES,
         "type": constants.GRIB2_MEDIATYPE,
@@ -169,3 +238,23 @@ def create_asset(href: Optional[str] = None) -> Dict[str, Any]:
     if href is not None:
         asset["href"] = href
     return asset
+
+
+def create_idx_asset(href: Optional[str] = None) -> Dict[str, Any]:
+    asset: Dict[str, Any] = {
+        "roles": constants.IDX_ROLES,
+        "type": constants.IDX_MEDIATYPE,
+        "title": constants.IDX_TITLE,
+    }
+    if href is not None:
+        asset["href"] = href
+    return asset
+
+
+def bbox_to_polygon(b: List[float]) -> Dict[str, Any]:
+    return {
+        "type": "Polygon",
+        "coordinates": [
+            [[b[0], b[3]], [b[2], b[3]], [b[2], b[1]], [b[0], b[1]], [b[0], b[3]]]
+        ],
+    }
