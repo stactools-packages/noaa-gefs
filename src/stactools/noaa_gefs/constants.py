@@ -1,6 +1,9 @@
 from pystac import Link, Provider, ProviderRole, RelType
 
-RASTER_EXTENSION_V11 = "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+FORECAST_EXTENSION = "https://stac-extensions.github.io/forecast/v1.0.0/schema.json"
+PROCESSING_EXTENSION = "https://stac-extensions.github.io/processing/v1.1.0/schema.json"
+RASTER_EXTENSION = "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
+TIMESTAMPS_EXTENSION = "https://stac-extensions.github.io/timestamps/v1.0.0/schema.json"
 
 DEFAULT_COLLECTION_ID = "noaa-gefs"
 TITLE = "NOAA Global Ensemble Forecast System (GEFS)"
@@ -29,6 +32,8 @@ PROVIDERS = [
     ),
 ]
 
+ID_SEP = "-"
+
 # I can't find a license that is directly associated with GEFS,
 # but https://www.emc.ncep.noaa.gov/emc/pages/numerical_forecast_systems/gefs/faq.php#
 # links to the URL below ("Disclaimer"), which claims it is "public domain" and
@@ -49,11 +54,16 @@ LINK_HOME = Link(
 
 GRIB2_KEY = "grib2"
 GRIB2_TITLE = "GRIB2 file"
+GRIB2_DESCRIPTION = (
+    "The forecast data. "
+    "Subsets of the data can be loaded using information from the associated index file."
+)
 GRIB2_MEDIATYPE = "application/wmo-GRIB2"
 GRIB2_ROLES = ["data", "source"]
 
 IDX_KEY = "index"
 IDX_TITLE = "Index file"
+IDX_DESCRIPTION = "Contains information on each message within the GRIB2 file."
 # todo: is there a better alternative? looks like a CSV file but with : instead of ,
 IDX_MEDIATYPE = "text/plain"
 IDX_ROLES = ["metadata", "index"]

@@ -1,11 +1,12 @@
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import rasterio
 from dateutil.parser import isoparse
+from isodate import duration_isoformat
 from pystac import (
     Asset,
     CatalogType,
@@ -19,8 +20,7 @@ from pystac import (
 )
 from pystac.extensions.item_assets import AssetDefinition, ItemAssetsExtension
 from pystac.extensions.projection import ProjectionExtension
-
-# from pystac.extensions.raster import DataType
+from pystac.utils import datetime_to_str
 from rasterio.crs import CRS
 
 from . import constants
@@ -54,7 +54,8 @@ def create_collection(
     )
 
     summaries = Summaries({})
-    summaries.add("example", ["abc"])
+    # summaries.add("forecast:step", ["PT0H", "PT6H", "PT12H", "PT18H"])
+    summaries.add("processing:facility", ["US-NCEP"])
 
     collection = Collection(
         stac_extensions=[],
@@ -120,56 +121,18 @@ def create_item(
     Returns:
         Item: STAC Item object
     """
-    item = None
+    with rasterio.open(asset_href, driver="GRIB") as dataset:
 
-    with rasterio.open(asset_href) as dataset:
-
-        [w, s, e, n] = dataset.bounds
-        bbox = [w, n, e, s]
-        geometry = bbox_to_polygon(bbox)
-
-        time = datetime.now(tz=timezone.utc)
-
-        properties: Dict[str, Any] = {}
-        id = str(time) + "_" + dataset.name
-
-        item = Item(
-            # Raster extension v1.1 not supported by PySTAC
-            stac_extensions=[constants.RASTER_EXTENSION_V11],
-            id=id,
-            properties=properties,
-            geometry=geometry,
-            bbox=bbox,
-            datetime=time,
-            collection=collection,
-        )
-
-        # Projection extension for assets
-        proj_attrs = ProjectionExtension.ext(item, add_if_missing=True)
-        if isinstance(dataset.crs, CRS):
-            proj_attrs.epsg = None
-            proj_attrs.projjson = dataset.crs.to_dict(projjson=True)
-        if len(dataset.shape) == 2:
-            proj_attrs.shape = [dataset.shape[1], dataset.shape[0]]
-        if dataset.transform:
-            proj_attrs.transform = list(dataset.transform)[0:6]
-
-        # Add GRIB2 assets to the item
-        asset = create_grib2_asset(asset_href)
-
-        asset["raster:bands"] = []
-        for i in range(1, dataset.count):
-            stats = dataset.statistics(i)
-            band = {
-                "data_type": dataset.dtypes[i],  # todo: check whether that is valid
-                "statistics": {
-                    "minimum": stats.min,
-                    "maximum": stats.max,
-                    "mean": stats.mean,
-                    "stddev": stats.std,
-                },
-            }
-
+        # Go through bands and collect metadata
+        band_numbers = range(1, dataset.count)
+        discipline = set()
+        element = set()
+        forecast_seconds = set()
+        ref_time = set()
+        short_name = set()
+        valid_time = set()
+        center = set()
+        for i in band_numbers:
             meta = dataset.tags(i)
             # "GRIB_DISCIPLINE": "0(Meteorological)",
             # "GRIB_ELEMENT": "SCTAOTK",
@@ -186,6 +149,136 @@ def create_item(
             # "GRIB_REF_TIME": "1660262400",
             # "GRIB_SHORT_NAME": "0-EATM",
             # "GRIB_VALID_TIME": "1660262400",
+
+            # Collection values in metadata
+            if "GRIB_DISCIPLINE" in meta:
+                discipline.add(meta["GRIB_DISCIPLINE"])
+            if "GRIB_ELEMENT" in meta:
+                element.add(meta["GRIB_ELEMENT"])
+            if "GRIB_FORECAST_SECONDS" in meta:
+                forecast_seconds.add(int(meta["GRIB_FORECAST_SECONDS"]))
+            if "GRIB_REF_TIME" in meta:
+                ref_time.add(int(meta["GRIB_REF_TIME"]))
+            if "GRIB_SHORT_NAME" in meta:
+                short_name.add(meta["GRIB_SHORT_NAME"])
+            if "GRIB_VALID_TIME" in meta:
+                valid_time.add(int(meta["GRIB_VALID_TIME"]))
+            # todo: parse SIGNF_REF_TIME=1(Start_of_Forecast)?
+            # https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table1-2.shtml
+
+            # Parse GRIB IDs field
+            grib_ids = dict()
+            if "GRIB_IDS" in meta:
+                entries = meta["GRIB_IDS"].split()
+                for entry in entries:
+                    try:
+                        [key, value] = entry.split("=", 1)
+                        grib_ids[key] = value
+                    except ValueError:
+                        continue
+
+            # Collection values in parsed GRIB IDs
+            if "CENTER" in grib_ids and grib_ids["CENTER"] != 0:
+                code = grib_ids["CENTER"]
+                if "SUBCENTER" in grib_ids and grib_ids["SUBCENTER"] != "0":
+                    code += " "
+                    code += grib_ids["SUBCENTER"]
+                center.add(code)
+
+        timestamps: List[int] = []
+        if len(ref_time) == 1:
+            timestamps.append(ref_time.pop())
+        elif len(ref_time) > 1:
+            timestamps.append(min(ref_time))
+            timestamps.append(max(ref_time))
+
+        datetimes: List[datetime] = []
+        for timestamp in timestamps:
+            datetimes.append(timestamp_to_datetime(timestamp))
+
+        # Compile information for the item
+        id_parts = list(map(lambda ts: str(ts), timestamps))
+        basename = os.path.basename(asset_href)
+        [filename, ext] = os.path.splitext(basename)
+        # Some source files don't have the .grib2 extension!
+        if ext != ".grib2" and ext != ".grb2":
+            filename = basename
+        id_parts.append(filename)
+
+        [w, s, e, n] = dataset.bounds
+        bbox = [w, n, e, s]
+        geometry = bbox_to_polygon(bbox)
+
+        stac_extensions = [constants.RASTER_EXTENSION]
+        # if len(forecast_seconds) > 0 or len(valid_time) > 0:
+        #    stac_extensions.append(constants.FORECAST_EXTENSION)
+        if len(valid_time) > 0:
+            stac_extensions.append(constants.TIMESTAMPS_EXTENSION)
+
+        # Add properties to Item - common data has been extracted from the bands
+        properties: Dict[str, Any] = {}
+        if len(datetimes) == 2:
+            properties["start_datetime"] = datetimes[0]
+            properties["end_datetime"] = datetimes[1]
+
+        if len(discipline) == 1:
+            properties["grib:discipline"] = parse_discipline(discipline.pop())
+
+        if len(element) == 1:
+            properties["grib:element"] = parse_bracket_str(element.pop())
+
+        if len(valid_time) == 1:
+            dt = timestamp_to_iso(valid_time.pop())
+            properties["forecast:datetime"] = dt
+            properties["expires"] = dt
+
+        if len(forecast_seconds) == 1:
+            properties["forecast:step"] = seconds_to_duration(forecast_seconds.pop())
+
+        if len(center) == 1:
+            properties["processing:facility"] = " ".join(
+                map(lambda f: parse_bracket_str(f), center.pop().split())
+            )
+
+        # Create the item
+        item = Item(
+            stac_extensions=stac_extensions,
+            id=constants.ID_SEP.join(id_parts),
+            properties=properties,
+            geometry=geometry,
+            bbox=bbox,
+            datetime=datetimes[0] if len(datetimes) == 1 else None,
+            collection=collection,
+        )
+
+        # Projection extension
+        proj_attrs = ProjectionExtension.ext(item, add_if_missing=True)
+        if isinstance(dataset.crs, CRS):
+            proj_attrs.epsg = None
+            proj_attrs.projjson = dataset.crs.to_dict(projjson=True)
+        if len(dataset.shape) == 2:
+            proj_attrs.shape = [dataset.shape[1], dataset.shape[0]]
+        if dataset.transform:
+            proj_attrs.transform = list(dataset.transform)[0:6]
+
+        # Add Grib2 asset to the item (was filled above)
+        asset = create_grib2_asset(asset_href)
+        asset["raster:bands"] = []
+        for i in band_numbers:
+            stats = dataset.statistics(i)
+            band = {
+                "data_type": dataset.dtypes[
+                    i
+                ],  # todo: check whether that is always valid
+                "statistics": {
+                    "minimum": stats.min,
+                    "maximum": stats.max,
+                    "mean": stats.mean,
+                    "stddev": stats.std,
+                },
+            }
+
+            meta = dataset.tags(i)
 
             if "GRIB_COMMENT" in meta:
                 # Remove the unit from the comment
@@ -210,23 +303,36 @@ def create_item(
                 band["scale"] = scale
                 band["offset"] = offset
 
+            if len(discipline) > 1 and "GRIB_DISCIPLINE" in meta:
+                band["grib:discipline"] = parse_discipline(meta["GRIB_DISCIPLINE"])
+
+            if len(element) > 1 and "GRIB_ELEMENT" in meta:
+                band["grib:element"] = parse_discipline(meta["GRIB_ELEMENT"])
+
+            if "GRIB_SHORT_NAME" in meta:
+                band["grib:short_name"] = meta["GRIB_SHORT_NAME"]
+
+            if len(forecast_seconds) > 1 and "GRIB_FORECAST_SECONDS" in meta:
+                band["forecast:step"] = seconds_to_duration(
+                    meta["GRIB_FORECAST_SECONDS"]
+                )
+
+            if len(valid_time) > 1 and "GRIB_VALID_TIME" in meta:
+                dt = timestamp_to_iso(meta["GRIB_VALID_TIME"])
+                band["forecast:datetime"] = dt
+                band["expires"] = dt
+
             asset["raster:bands"].append(band)
 
         item.add_asset(constants.GRIB2_KEY, Asset.from_dict(asset))
 
         # Add Index assets to the item (if available)
-        [path, ext] = os.path.splitext(asset_href)
-        if ext == "grib2" or ext == "grb2":
-            idx_href = path + ".idx"
-        else:
-            # Some source files don't have the .grib2 extension!
-            idx_href = asset_href + ".idx"
-
+        idx_href = asset_href + ".idx"
         if os.path.exists(idx_href):
             idx_asset = create_idx_asset(idx_href)
             item.add_asset(constants.IDX_KEY, Asset.from_dict(idx_asset))
 
-    return item
+        return item
 
 
 def create_grib2_asset(href: Optional[str] = None) -> Dict[str, Any]:
@@ -234,6 +340,7 @@ def create_grib2_asset(href: Optional[str] = None) -> Dict[str, Any]:
         "roles": constants.GRIB2_ROLES,
         "type": constants.GRIB2_MEDIATYPE,
         "title": constants.GRIB2_TITLE,
+        "description": constants.GRIB2_DESCRIPTION,
     }
     if href is not None:
         asset["href"] = href
@@ -245,6 +352,7 @@ def create_idx_asset(href: Optional[str] = None) -> Dict[str, Any]:
         "roles": constants.IDX_ROLES,
         "type": constants.IDX_MEDIATYPE,
         "title": constants.IDX_TITLE,
+        "description": constants.IDX_DESCRIPTION,
     }
     if href is not None:
         asset["href"] = href
@@ -258,3 +366,25 @@ def bbox_to_polygon(b: List[float]) -> Dict[str, Any]:
             [[b[0], b[3]], [b[2], b[3]], [b[2], b[1]], [b[0], b[1]], [b[0], b[3]]]
         ],
     }
+
+
+def seconds_to_duration(seconds: int) -> str:
+    if seconds == 0:
+        return "PT0H"
+    return str(duration_isoformat(timedelta(seconds=seconds)))
+
+
+def timestamp_to_datetime(seconds: int) -> datetime:
+    return datetime.fromtimestamp(seconds, tz=timezone.utc)
+
+
+def timestamp_to_iso(seconds: int) -> str:
+    return datetime_to_str(timestamp_to_datetime(seconds))
+
+
+def parse_discipline(str: str) -> str:
+    return parse_bracket_str(str).lower()
+
+
+def parse_bracket_str(str: str) -> str:
+    return re.sub(r"\d+\(([^\)]+)\)$", r"\1", str)

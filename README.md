@@ -8,10 +8,15 @@
 - Owner: @m-mohr
 - Dataset homepage: <https://www.ncei.noaa.gov/products/weather-climate-models/global-ensemble-forecast>
 - STAC extensions used:
+  - [forecast](https://github.com/stac-extensions/forecast/)
   - [raster](https://github.com/stac-extensions/raster/)
+  - [processing](https://github.com/stac-extensions/processing/)
   - [proj](https://github.com/stac-extensions/projection/)
+  - [timestamps](https://github.com/stac-extensions/timestamps/)
 - Extra fields:
-  - `noaa-gefs:custom`: A custom attribute
+  - `grib:discipline`: The discipline as lower-case string (e.g. `SCTAOTK`)
+  - `grib:element`: The element type as string (e.g. `meteorological`)
+  - `grib:short_name`: The short name as string (e.g. `0-SFC`)
 
 A stactools package for NOAA's Global Ensemble Forecast System (GEFS) dataset.
 

@@ -5,6 +5,12 @@
   "description": "The Global Ensemble Forecast System (GEFS) is a weather model created by the National Centers for Environmental Prediction (NCEP) that generates 21 separate forecasts (ensemble members) to address underlying uncertainties in the input data such limited coverage, instruments or observing systems biases, and the limitations of the model itself. GEFS quantifies these uncertainties by generating multiple forecasts, which in turn produce a range of potential outcomes based on differences or perturbations applied to the data after it has been incorporated into the model. Each forecast compensates for a different set of uncertainties.\n\nGEFS runs 4 times per day (00; 06; 12; 18UTC) with 31 members at each lead-time at C384L64 (about 25 km horizontal resolution and 64 vertical hybrid levels for atmosphere component) and out to 16 days at each cycle, except for 35 days at 0000 UTC.",
   "links": [
     {
+      "rel": "item",
+      "href": "./item.json",
+      "type": "application/geo+json",
+      "title": "1660262400-gefs.chem.t00z.a2d_0p25.f000"
+    },
+    {
       "rel": "root",
       "href": "./collection.json",
       "type": "application/json",
@@ -24,12 +30,11 @@
     },
     {
       "rel": "self",
-      "href": "/mnt/c/Projects/noaa-gefs/examples/collection.json",
+      "href": "https://raw.githubusercontent.com/stactools-packages/noaa-gefs/main/examples/collection.json",
       "type": "application/json"
     }
   ],
   "stac_extensions": [
-    "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
     "https://stac-extensions.github.io/item-assets/v1.0.0/schema.json"
   ],
   "item_assets": {
@@ -39,7 +44,17 @@
         "source"
       ],
       "type": "application/wmo-GRIB2",
-      "title": "GRIB2 file"
+      "title": "GRIB2 file",
+      "description": "The forecast data. Subsets of the data can be loaded using information from the associated index file."
+    },
+    "index": {
+      "roles": [
+        "metadata",
+        "index"
+      ],
+      "type": "text/plain",
+      "title": "Index file",
+      "description": "Contains information on each message within the GRIB2 file."
     }
   },
   "title": "NOAA Global Ensemble Forecast System (GEFS)",
@@ -83,6 +98,8 @@
     }
   ],
   "summaries": {
-    "example": []
+    "processing:facility": [
+      "US-NCEP"
+    ]
   }
 }
