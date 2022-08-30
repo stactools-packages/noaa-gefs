@@ -2,7 +2,7 @@ import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import rasterio
 from dateutil.parser import isoparse
@@ -54,7 +54,7 @@ def create_collection(
     )
 
     summaries = Summaries({})
-    # summaries.add("forecast:step", ["PT0H", "PT6H", "PT12H", "PT18H"])
+    # summaries.add("forecast:horizon", ["PT0H", "PT6H", "PT12H", "PT18H"])
     summaries.add("processing:facility", ["US-NCEP"])
 
     collection = Collection(
@@ -130,7 +130,7 @@ def create_item(
         forecast_seconds = set()
         ref_time = set()
         short_name = set()
-        valid_time = set()
+        forecast_time = set()
         center = set()
         for i in band_numbers:
             meta = dataset.tags(i)
@@ -162,7 +162,7 @@ def create_item(
             if "GRIB_SHORT_NAME" in meta:
                 short_name.add(meta["GRIB_SHORT_NAME"])
             if "GRIB_VALID_TIME" in meta:
-                valid_time.add(int(meta["GRIB_VALID_TIME"]))
+                forecast_time.add(int(meta["GRIB_VALID_TIME"]))
             # todo: parse SIGNF_REF_TIME=1(Start_of_Forecast)?
             # https://www.nco.ncep.noaa.gov/pmb/docs/grib2/grib2_doc/grib2_table1-2.shtml
 
@@ -185,19 +185,24 @@ def create_item(
                     code += grib_ids["SUBCENTER"]
                 center.add(code)
 
-        timestamps: List[int] = []
-        if len(ref_time) == 1:
-            timestamps.append(ref_time.pop())
-        elif len(ref_time) > 1:
-            timestamps.append(min(ref_time))
-            timestamps.append(max(ref_time))
+        forecast_timestamps: List[Optional[int]] = []
+        if len(forecast_time) == 1:
+            forecast_timestamps.append(forecast_time.pop())
+        elif len(forecast_time) == 2:
+            forecast_timestamps.append(min(forecast_time))
+            forecast_timestamps.append(max(forecast_time))
+        elif len(forecast_time) > 2:
+            forecast_timestamps.append(min(forecast_time))
+            forecast_timestamps.append(None)
 
-        datetimes: List[datetime] = []
-        for timestamp in timestamps:
-            datetimes.append(timestamp_to_datetime(timestamp))
+        forecast_datetimes: List[Optional[datetime]] = []
+        for timestamp in forecast_timestamps:
+            forecast_datetimes.append(
+                None if timestamp is None else timestamp_to_datetime(timestamp)
+            )
 
         # Compile information for the item
-        id_parts = list(map(lambda ts: str(ts), timestamps))
+        id_parts = list(map(lambda ts: str(ts), forecast_timestamps))
         basename = os.path.basename(asset_href)
         [filename, ext] = os.path.splitext(basename)
         # Some source files don't have the .grib2 extension!
@@ -209,17 +214,25 @@ def create_item(
         bbox = [w, n, e, s]
         geometry = bbox_to_polygon(bbox)
 
+        add_ts_ext = False
         stac_extensions = [constants.RASTER_EXTENSION]
-        # if len(forecast_seconds) > 0 or len(valid_time) > 0:
+        # if len(forecast_seconds) > 0 or len(forecast_time) > 0:
         #    stac_extensions.append(constants.FORECAST_EXTENSION)
-        if len(valid_time) > 0:
-            stac_extensions.append(constants.TIMESTAMPS_EXTENSION)
 
         # Add properties to Item - common data has been extracted from the bands
         properties: Dict[str, Any] = {}
-        if len(datetimes) == 2:
-            properties["start_datetime"] = datetimes[0]
-            properties["end_datetime"] = datetimes[1]
+        forecast_datetime_instance: Optional[datetime] = None
+        if len(forecast_datetimes) == 1:
+            forecast_datetime_instance = forecast_datetimes[0]
+            if forecast_datetime_instance is not None:
+                properties["expires"] = temporal_to_iso(forecast_datetime_instance)
+            add_ts_ext = True
+        elif len(forecast_datetimes) == 2:
+            properties["start_datetime"] = forecast_datetimes[0]
+            properties["end_datetime"] = forecast_datetimes[1]
+            if properties["end_datetime"] is not None:
+                properties["expires"] = temporal_to_iso(properties["end_datetime"])
+                add_ts_ext = True
 
         if len(discipline) == 1:
             properties["grib:discipline"] = parse_discipline(discipline.pop())
@@ -227,13 +240,14 @@ def create_item(
         if len(element) == 1:
             properties["grib:element"] = parse_bracket_str(element.pop())
 
-        if len(valid_time) == 1:
-            dt = timestamp_to_iso(valid_time.pop())
-            properties["forecast:datetime"] = dt
-            properties["expires"] = dt
+        if len(ref_time) == 1:
+            dt = temporal_to_iso(ref_time.pop())
+            properties["forecast:reference_datetime"] = dt
+        elif len(ref_time) > 1:
+            raise Exception("Can't encode multiple reference datetimes")
 
         if len(forecast_seconds) == 1:
-            properties["forecast:step"] = seconds_to_duration(forecast_seconds.pop())
+            properties["forecast:horizon"] = seconds_to_duration(forecast_seconds.pop())
 
         if len(center) == 1:
             properties["processing:facility"] = " ".join(
@@ -247,7 +261,7 @@ def create_item(
             properties=properties,
             geometry=geometry,
             bbox=bbox,
-            datetime=datetimes[0] if len(datetimes) == 1 else None,
+            datetime=forecast_datetime_instance,
             collection=collection,
         )
 
@@ -267,9 +281,8 @@ def create_item(
         for i in band_numbers:
             stats = dataset.statistics(i)
             band = {
-                "data_type": dataset.dtypes[
-                    i
-                ],  # todo: check whether that is always valid
+                # todo: check whether this is always valid
+                "data_type": dataset.dtypes[i],
                 "statistics": {
                     "minimum": stats.min,
                     "maximum": stats.max,
@@ -313,14 +326,15 @@ def create_item(
                 band["grib:short_name"] = meta["GRIB_SHORT_NAME"]
 
             if len(forecast_seconds) > 1 and "GRIB_FORECAST_SECONDS" in meta:
-                band["forecast:step"] = seconds_to_duration(
+                band["forecast:horizon"] = seconds_to_duration(
                     meta["GRIB_FORECAST_SECONDS"]
                 )
 
-            if len(valid_time) > 1 and "GRIB_VALID_TIME" in meta:
-                dt = timestamp_to_iso(meta["GRIB_VALID_TIME"])
-                band["forecast:datetime"] = dt
+            if len(forecast_time) > 1 and "GRIB_VALID_TIME" in meta:
+                dt = temporal_to_iso(meta["GRIB_VALID_TIME"])
+                band["datetime"] = dt
                 band["expires"] = dt
+                add_ts_ext = True
 
             asset["raster:bands"].append(band)
 
@@ -331,6 +345,9 @@ def create_item(
         if os.path.exists(idx_href):
             idx_asset = create_idx_asset(idx_href)
             item.add_asset(constants.IDX_KEY, Asset.from_dict(idx_asset))
+
+        if add_ts_ext:
+            item.stac_extensions.append(constants.TIMESTAMPS_EXTENSION)
 
         return item
 
@@ -378,8 +395,10 @@ def timestamp_to_datetime(seconds: int) -> datetime:
     return datetime.fromtimestamp(seconds, tz=timezone.utc)
 
 
-def timestamp_to_iso(seconds: int) -> str:
-    return datetime_to_str(timestamp_to_datetime(seconds))
+def temporal_to_iso(temporal: Union[datetime, int]) -> str:
+    if isinstance(temporal, int):
+        temporal = timestamp_to_datetime(temporal)
+    return datetime_to_str(temporal)
 
 
 def parse_discipline(str: str) -> str:

@@ -3,10 +3,10 @@
   "stac_version": "1.0.0",
   "id": "1660262400-gefs.chem.t00z.a2d_0p25.f000",
   "properties": {
-    "grib:discipline": "meteorological",
-    "forecast:datetime": "2022-08-12T00:00:00Z",
     "expires": "2022-08-12T00:00:00Z",
-    "forecast:step": "PT0H",
+    "grib:discipline": "meteorological",
+    "forecast:reference_datetime": "2022-08-12T00:00:00Z",
+    "forecast:horizon": "PT0H",
     "processing:facility": "US-NCEP",
     "proj:epsg": null,
     "proj:projjson": {
@@ -490,8 +490,8 @@
   ],
   "stac_extensions": [
     "https://stac-extensions.github.io/raster/v1.1.0/schema.json",
-    "https://stac-extensions.github.io/timestamps/v1.0.0/schema.json",
-    "https://stac-extensions.github.io/projection/v1.0.0/schema.json"
+    "https://stac-extensions.github.io/projection/v1.0.0/schema.json",
+    "https://stac-extensions.github.io/timestamps/v1.0.0/schema.json"
   ],
   "collection": "noaa-gefs"
 }
