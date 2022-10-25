@@ -1,6 +1,6 @@
 from pystac import Link, Provider, ProviderRole, RelType
 
-FORECAST_EXTENSION = "https://stac-extensions.github.io/forecast/v1.0.0/schema.json"
+FORECAST_EXTENSION = "https://stac-extensions.github.io/forecast/v0.1.0/schema.json"
 PROCESSING_EXTENSION = "https://stac-extensions.github.io/processing/v1.1.0/schema.json"
 RASTER_EXTENSION = "https://stac-extensions.github.io/raster/v1.1.0/schema.json"
 TIMESTAMPS_EXTENSION = "https://stac-extensions.github.io/timestamps/v1.0.0/schema.json"

@@ -216,8 +216,8 @@ def create_item(
 
         add_ts_ext = False
         stac_extensions = [constants.RASTER_EXTENSION]
-        # if len(forecast_seconds) > 0 or len(forecast_time) > 0:
-        #    stac_extensions.append(constants.FORECAST_EXTENSION)
+        if len(forecast_seconds) > 0 or len(forecast_time) > 0:
+            stac_extensions.append(constants.FORECAST_EXTENSION)
 
         # Add properties to Item - common data has been extracted from the bands
         properties: Dict[str, Any] = {}
